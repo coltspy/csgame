@@ -26,7 +26,19 @@ export interface Player {
   hasSubmitted: boolean;
   stats: PlayerStats;
 }
-
+export interface Round {
+  number: number;
+  title: string;
+  description: string;
+  timeLimit: number;
+  questions: {
+    id: number;
+    text: string;
+    options: string[];
+    correctAnswers: string[];
+    points: number;
+  }[];
+}
 export interface Room {
   id?: string;
   name: string;
