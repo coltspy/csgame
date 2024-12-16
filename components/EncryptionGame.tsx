@@ -45,6 +45,12 @@ const challenges: Challenge[] = [
   }
 ];
 
+const getShiftedAlphabet = (shift: number): string => {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  const shiftedAlphabet = alphabet.slice(shift) + alphabet.slice(0, shift);
+  return alphabet + '\n' + shiftedAlphabet;
+};
+
 export default function EncryptionGame({ roomId, room, playerId }: EncryptionGameProps) {
   const [timeLeft, setTimeLeft] = useState(180);
   const [submitted, setSubmitted] = useState(false);
@@ -259,9 +265,30 @@ export default function EncryptionGame({ roomId, room, playerId }: EncryptionGam
             </div>
 
             <div className="bg-blue-900/20 p-3 rounded-lg border border-blue-500/30">
-              <p className="text-sm text-gray-300">{challenge.hint}</p>
-            </div>
-          </div>
+  <p className="text-sm text-gray-300">{challenge.hint}</p>
+</div>
+
+<div className="mt-4 p-4 bg-gray-800 rounded-lg border border-gray-600 font-mono text-sm">
+  <div className="text-gray-400 mb-2">Alphabet Reference:</div>
+  <div className="grid grid-cols-26 gap-x-3 text-center mb-1">
+    {[...Array(26)].map((_, i) => (
+      <div key={i} className="w-6">
+        {String.fromCharCode(65 + i)}
+      </div>
+    ))}
+  </div>
+  <div className="grid grid-cols-26 gap-x-3 text-center text-blue-400">
+    {[...Array(26)].map((_, i) => 
+      <div key={i} className="w-6">
+        {challenge.type === 'caesar' 
+          ? String.fromCharCode(((i + (parseInt(challenge.key) || 0)) % 26) + 65)
+          : '?'}
+      </div>
+    )}
+  </div>
+</div>
+
+</div>
 
           <div className="space-y-4">
             <Input
