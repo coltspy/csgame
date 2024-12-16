@@ -1,254 +1,224 @@
-import React, { useState, useEffect } from 'react';
-import { doc, updateDoc } from 'firebase/firestore';
+// app/components/NetworkDefenseGame.tsx
+'use client';
+
+import { useState, useEffect } from 'react';
+import { doc, updateDoc, getDoc, arrayUnion } from 'firebase/firestore';
 import { db } from '@/app/lib/firebase';
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Shield, Clock, Trophy, Network, AlertTriangle } from 'lucide-react';
+import { Button } from "@/components/ui/button";
+import { Shield, Trophy, Heart, AlertCircle } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Leaderboard } from '@/components/Leaderboard';
 import type { Room, GameScore } from '@/app/lib/types';
 
 interface NetworkDefenseProps {
   roomId: string;
   room: Room;
-  playerId: string | null;
+  playerId: string;
 }
 
-interface TrafficLog {
-  timestamp: string;
-  source: string;
-  destination: string;
-  port: number;
-  protocol: 'TCP' | 'UDP';
-  payload: string;
-  flags?: string[];
-}
-
-interface TrafficRule {
+interface Question {
   id: number;
-  port: number;
-  protocol: 'TCP' | 'UDP';
-  source: string;
-  action: 'ALLOW' | 'DENY';
+  text: string;
+  answers: string[];
+  correct: number;
+  points: number;
+  category: 'firewall' | 'malware' | 'encryption' | 'protocol';
+  timeLimit: number;
 }
 
-interface Scenario {
-  id: number;
-  title: string;
-  description: string;
-  trafficLogs: TrafficLog[];
-  requiredRules: TrafficRule[];
-  hints: string[];
-  learningResources: {
-    title: string;
-    content: string[];
-  }[];
-}
-
-const scenarios: Scenario[] = [
+const QUESTIONS: Question[] = [
   {
     id: 1,
-    title: "Web Server Under Attack",
-    description: "You're managing a company web server that's experiencing unusual traffic patterns. Analyze the logs and create firewall rules to protect the server.",
-    trafficLogs: [
-      {
-        timestamp: "2024-03-22 10:15:23",
-        source: "203.0.113.42",
-        destination: "10.0.0.5",
-        port: 80,
-        protocol: 'TCP',
-        payload: "GET /index.html HTTP/1.1",
-        flags: ["SYN"]
-      },
-      {
-        timestamp: "2024-03-22 10:15:24",
-        source: "192.168.1.100",
-        destination: "10.0.0.5",
-        port: 22,
-        protocol: 'TCP',
-        payload: "SSH-2.0-OpenSSH_8.2p1",
-        flags: ["SYN", "RST"]
-      },
-      {
-        timestamp: "2024-03-22 10:15:25",
-        source: "198.51.100.77",
-        destination: "10.0.0.5",
-        port: 443,
-        protocol: 'TCP',
-        payload: "Client Hello",
-        flags: ["SYN"]
-      },
-      {
-        timestamp: "2024-03-22 10:15:26",
-        source: "10.0.0.50",
-        destination: "10.0.0.5",
-        port: 3389,
-        protocol: 'TCP',
-        payload: "RDP Negotiation Request",
-        flags: ["SYN", "RST", "ACK"]
-      }
+    text: "An attacker is flooding your network with TCP SYN packets. What type of attack is this?",
+    answers: [
+      "SQL Injection",
+      "SYN Flood Attack",
+      "Cross-Site Scripting",
+      "Man in the Middle"
     ],
-    requiredRules: [
-      { id: 1, port: 80, protocol: 'TCP', source: '0.0.0.0/0', action: 'ALLOW' },
-      { id: 2, port: 443, protocol: 'TCP', source: '0.0.0.0/0', action: 'ALLOW' },
-      { id: 3, port: 22, protocol: 'TCP', source: '192.168.1.100', action: 'DENY' },
-      { id: 4, port: 3389, protocol: 'TCP', source: '10.0.0.50', action: 'DENY' }
+    correct: 1,
+    points: 100,
+    category: 'protocol',
+    timeLimit: 15
+  },
+  {
+    id: 2,
+    text: "Which port should be blocked to prevent unauthorized SSH access?",
+    answers: ["22", "80", "443", "3389"],
+    correct: 0,
+    points: 100,
+    category: 'firewall',
+    timeLimit: 15
+  },
+  {
+    id: 3,
+    text: "Software that encrypts your files and demands payment is known as:",
+    answers: [
+      "Spyware",
+      "Ransomware",
+      "Adware",
+      "Worms"
     ],
-    hints: [
-      "Look for repeated connection attempts with RST flags",
-      "Check for unusual port access patterns",
-      "Consider which services should be publicly accessible",
-      "Analyze source IP addresses for internal vs external traffic"
-    ],
-    learningResources: [
-      {
-        title: "TCP Flags",
-        content: [
-          "SYN: Initiates connection",
-          "RST: Indicates connection reset",
-          "ACK: Acknowledges received data",
-          "Multiple RSTs might indicate port scanning"
-        ]
-      },
-      {
-        title: "Common Ports",
-        content: [
-          "80: HTTP - Web traffic",
-          "443: HTTPS - Secure web traffic",
-          "22: SSH - Remote access",
-          "3389: RDP - Remote desktop"
-        ]
-      }
-    ]
-  }
+    correct: 1,
+    points: 100,
+    category: 'malware',
+    timeLimit: 15
+  },
+  // Add more questions...
 ];
 
 export default function NetworkDefenseGame({ roomId, room, playerId }: NetworkDefenseProps) {
-  const [timeLeft, setTimeLeft] = useState(300);
+  const [lives, setLives] = useState(3);
+  const [score, setScore] = useState(0);
+  const [currentQuestion, setCurrentQuestion] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(QUESTIONS[0].timeLimit);
   const [submitted, setSubmitted] = useState(false);
-  const [userRules, setUserRules] = useState<TrafficRule[]>([]);
-  const [error, setError] = useState('');
-  const [currentScenario, setCurrentScenario] = useState(0);
-  const [showHint, setShowHint] = useState(false);
-  const [currentHint, setCurrentHint] = useState(0);
-  const [showLearningResource, setShowLearningResource] = useState(false);
-  const [currentResource, setCurrentResource] = useState(0);
+  const [gameOver, setGameOver] = useState(false);
+  const [streak, setStreak] = useState(0);
 
   useEffect(() => {
+    if (submitted || gameOver) return;
+
     const timer = setInterval(() => {
-      if (!submitted) {
-        setTimeLeft(prev => {
-          if (prev <= 0) {
-            submitRules();
-            return 0;
-          }
-          return prev - 1;
-        });
-      }
+      setTimeLeft(prev => {
+        if (prev <= 0) {
+          handleAnswer(-1); // Wrong answer if time runs out
+          return QUESTIONS[currentQuestion].timeLimit;
+        }
+        return prev - 1;
+      });
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [submitted]);
+  }, [submitted, currentQuestion, gameOver]);
 
-  const checkRules = (): number => {
-    const scenario = scenarios[currentScenario];
-    let score = 0;
-    
-    scenario.requiredRules.forEach(required => {
-      if (userRules.some(rule => 
-        rule.port === required.port && 
-        rule.protocol === required.protocol &&
-        rule.source === required.source &&
-        rule.action === required.action
-      )) {
-        score += 25; // 25 points per correct rule
+  const handleAnswer = (answerIndex: number) => {
+    const question = QUESTIONS[currentQuestion];
+    let correct = answerIndex === question.correct;
+    let points = 0;
+
+    if (correct) {
+      points = question.points + (timeLeft * 10); // Time bonus
+      setStreak(prev => prev + 1);
+      if (streak >= 2) points *= 1.5; // Streak bonus
+      setScore(prev => prev + points);
+    } else {
+      setLives(prev => prev - 1);
+      setStreak(0);
+      if (lives <= 1) {
+        setGameOver(true);
+        submitScore();
+        return;
       }
-    });
-
-    return score;
-  };
-
-  const submitRules = async () => {
-    if (!playerId) return;
-    
-    const ruleScore = checkRules();
-    
-    if (ruleScore === 0) {
-      setError('Incorrect configuration. Try again!');
-      return;
     }
 
-    const score: GameScore = {
-      timeLeft,
-      complexity: ruleScore,
-      total: timeLeft + ruleScore
-    };
-
-    const updatedPlayers = room.players.map(p => 
-      p.id === playerId 
-        ? { ...p, score, hasSubmitted: true }
-        : p
-    );
-
-    const allSubmitted = updatedPlayers.every(p => p.hasSubmitted);
-
-    await updateDoc(doc(db, 'rooms', roomId), {
-      players: updatedPlayers,
-      allSubmitted,
-      'gameState.status': allSubmitted ? 'roundEnd' : 'playing'
-    });
-
-    setSubmitted(true);
-  };
-
-  const toggleRule = (rule: TrafficRule) => {
-    setUserRules(prev => {
-      const exists = prev.some(r => r.id === rule.id);
-      if (exists) {
-        return prev.filter(r => r.id !== rule.id);
-      }
-      return [...prev, rule];
-    });
-  };
-
-  const showNextHint = () => {
-    if (currentHint < scenario.hints.length - 1) {
-      setCurrentHint(prev => prev + 1);
+    if (currentQuestion >= QUESTIONS.length - 1) {
+      setGameOver(true);
+      submitScore();
+    } else {
+      setCurrentQuestion(prev => prev + 1);
+      setTimeLeft(QUESTIONS[currentQuestion + 1].timeLimit);
     }
-    setShowHint(true);
   };
 
-  const toggleLearningResource = () => {
-    setShowLearningResource(!showLearningResource);
+  const submitScore = async () => {
+    if (submitted) return;
+
+    try {
+      const roomRef = doc(db, 'rooms', roomId);
+      const roomSnap = await getDoc(roomRef);
+      const roomData = roomSnap.data() as Room;
+
+      const submittedPlayers = roomData.players.filter(p => p.score);
+      const place = submittedPlayers.length + 1;
+      
+      const lifeBonus = lives * 200;
+      const finalScore = score + lifeBonus;
+
+      const gameScore: GameScore = {
+        timeLeft,
+        complexity: score,
+        total: finalScore,
+        place,
+        completedAt: new Date()
+      };
+
+      const updatedPlayers = roomData.players.map(p => 
+        p.id === playerId 
+          ? { 
+              ...p, 
+              score: gameScore, 
+              hasSubmitted: true,
+              stats: {
+                totalGames: (p.stats?.totalGames || 0) + 1,
+                wins: place === 1 ? (p.stats?.wins || 0) + 1 : (p.stats?.wins || 0),
+                totalScore: (p.stats?.totalScore || 0) + finalScore,
+                bestTime: p.stats?.bestTime ? Math.max(p.stats.bestTime, timeLeft) : timeLeft,
+                averagePlace: p.stats?.totalGames 
+                  ? ((p.stats.averagePlace * p.stats.totalGames + place) / (p.stats.totalGames + 1))
+                  : place
+              }
+            }
+          : p
+      );
+
+      const allSubmitted = updatedPlayers.every(p => p.hasSubmitted);
+
+      await updateDoc(roomRef, {
+        players: updatedPlayers,
+        allSubmitted,
+        ...(allSubmitted ? {
+          'gameState.status': 'roundEnd',
+          'roundHistory': arrayUnion({
+            gameType: 'network',
+            winners: updatedPlayers
+              .filter(p => p.score?.place === 1)
+              .map(p => p.id),
+            scores: Object.fromEntries(
+              updatedPlayers
+                .filter(p => p.score)
+                .map(p => [p.id, p.score])
+            )
+          })
+        } : {})
+      });
+
+      setSubmitted(true);
+
+      if (allSubmitted) {
+        setTimeout(() => {
+          updateDoc(roomRef, {
+            'gameState.status': 'waiting',
+            'gameState.round': roomData.gameState.round + 1,
+            players: updatedPlayers.map(p => ({
+              ...p,
+              score: null,
+              hasSubmitted: false
+            }))
+          });
+        }, 5000);
+      }
+
+    } catch (error) {
+      console.error('Failed to submit score:', error);
+    }
   };
 
-  const scenario = scenarios[currentScenario];
-
-  if (submitted && !room.allSubmitted) {
+  if (room.allSubmitted || (submitted && room.players.every(p => p.hasSubmitted))) {
     return (
       <Card className="bg-gray-800 border-gray-700">
         <CardHeader>
           <CardTitle className="text-xl font-semibold text-green-400 flex items-center">
             <Trophy className="mr-2 h-5 w-5" />
-            Waiting for other players...
+            Game Results
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-2">
-            {room.players.map(player => (
-              <div 
-                key={player.id} 
-                className={`p-4 rounded-lg flex items-center justify-between ${
-                  player.id === playerId ? 'bg-blue-900' : 'bg-gray-700'
-                }`}
-              >
-                <span>{player.name}</span>
-                {player.hasSubmitted ? 
-                  <Trophy className="h-5 w-5 text-green-500" /> : 
-                  <Clock className="h-5 w-5 text-yellow-500 animate-pulse" />
-                }
-              </div>
-            ))}
-          </div>
+          <Leaderboard 
+            players={room.players}
+            isInGame={true}
+          />
         </CardContent>
       </Card>
     );
@@ -256,122 +226,75 @@ export default function NetworkDefenseGame({ roomId, room, playerId }: NetworkDe
 
   return (
     <div className="grid grid-cols-3 gap-6">
-      <Card className="col-span-2 bg-gray-800 border-gray-700">
-        <CardHeader>
-          <CardTitle className="text-xl font-semibold text-blue-400 flex items-center">
-            <Shield className="mr-2 h-5 w-5" />
-            Network Defense - Time Left: {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="bg-gray-700 p-4 rounded-lg">
-            <h3 className="text-lg font-semibold mb-2">{scenario.title}</h3>
-            <p className="text-gray-300 mb-4">{scenario.description}</p>
-
-            <div className="space-y-4">
-              <h4 className="font-semibold text-blue-400">Traffic Logs:</h4>
-              <div className="space-y-2 font-mono text-sm">
-                {scenario.trafficLogs.map((log, index) => (
-                  <div key={index} className="bg-gray-800 p-2 rounded">
-                    <div className="text-gray-400">{log.timestamp}</div>
-                    <div>
-                      Source: {log.source} → {log.destination}:${log.port} ({log.protocol})
-                    </div>
-                    <div className="text-gray-400">Payload: {log.payload}</div>
-                    {log.flags && (
-                      <div className="text-yellow-400">
-                        Flags: {log.flags.join(", ")}
-                      </div>
-                    )}
-                  </div>
-                ))}
+      <div className="col-span-2">
+        <Card className="bg-gray-800 border-gray-700">
+          <CardHeader>
+            <CardTitle className="text-xl font-semibold text-blue-400 flex items-center justify-between">
+              <div className="flex items-center">
+                <Shield className="mr-2 h-5 w-5" />
+                Network Security Quiz
               </div>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <div className="flex justify-between">
-              <h3 className="font-semibold">Configure Firewall Rules:</h3>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={showNextHint}
-                className="text-yellow-400"
-              >
-                Need a hint?
-              </Button>
-            </div>
-
-            {showHint && (
-              <div className="bg-yellow-900/30 p-3 rounded border border-yellow-400/30">
-                <p className="text-yellow-400 text-sm">{scenario.hints[currentHint]}</p>
-              </div>
-            )}
-
-            <div className="space-y-2">
-              {scenario.requiredRules.map(rule => (
-                <div key={rule.id} className="flex items-center space-x-2 bg-gray-700 p-3 rounded">
-                  <Checkbox
-                    id={`rule-${rule.id}`}
-                    checked={userRules.some(r => r.id === rule.id)}
-                    onCheckedChange={() => toggleRule(rule)}
-                  />
-                  <label htmlFor={`rule-${rule.id}`} className="text-sm">
-                    {rule.action} {rule.protocol} traffic on port {rule.port} from {rule.source}
-                  </label>
+              <div className="flex items-center space-x-6">
+                <div className="flex items-center">
+                  {[...Array(lives)].map((_, i) => (
+                    <Heart 
+                      key={i} 
+                      className="h-5 w-5 text-red-500 ml-1" 
+                      fill="currentColor"
+                    />
+                  ))}
                 </div>
-              ))}
-            </div>
-
-            {error && (
-              <div className="flex items-center text-red-400 text-sm">
-                <AlertTriangle className="h-4 w-4 mr-2" />
-                {error}
-              </div>
-            )}
-
-            <Button
-              onClick={submitRules}
-              className="w-full bg-blue-600 hover:bg-blue-700"
-            >
-              Apply Rules
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="bg-gray-800 border-gray-700">
-        <CardHeader>
-          <CardTitle className="text-xl font-semibold text-yellow-400 flex items-center">
-            <Network className="mr-2 h-5 w-5" />
-            Security Resources
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {scenario.learningResources.map((resource, index) => (
-              <div key={index} className="space-y-2">
-                <Button
-                  variant="outline"
-                  className="w-full text-left flex justify-between items-center"
-                  onClick={() => {
-                    setCurrentResource(index);
-                    toggleLearningResource();
-                  }}
-                >
-                  {resource.title}
-                  {showLearningResource && currentResource === index ? '−' : '+'}
-                </Button>
-                {showLearningResource && currentResource === index && (
-                  <div className="bg-gray-700 p-3 rounded text-sm space-y-1">
-                    {resource.content.map((item, i) => (
-                      <p key={i} className="text-gray-300">{item}</p>
-                    ))}
+                <div>Time: {timeLeft}s</div>
+                <div>Score: {score}</div>
+                {streak >= 2 && (
+                  <div className="text-yellow-400">
+                    {streak}x Streak!
                   </div>
                 )}
               </div>
-            ))}
-          </div>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-8 p-4">
+              <motion.div
+                key={currentQuestion}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-gray-900 p-6 rounded-lg"
+              >
+                <div className="text-xl font-semibold mb-6">
+                  {QUESTIONS[currentQuestion].text}
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  {QUESTIONS[currentQuestion].answers.map((answer, index) => (
+                    <Button
+                      key={index}
+                      onClick={() => handleAnswer(index)}
+                      className="p-4 text-lg h-auto"
+                      variant="outline"
+                    >
+                      {answer}
+                    </Button>
+                  ))}
+                </div>
+              </motion.div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card className="bg-gray-800 border-gray-700">
+        <CardHeader>
+          <CardTitle className="text-xl font-semibold text-blue-400 flex items-center">
+            <Trophy className="mr-2 h-5 w-5" />
+            Current Rankings
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Leaderboard 
+            players={room.players}
+            isInGame={true}
+          />
         </CardContent>
       </Card>
     </div>

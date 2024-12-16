@@ -1,19 +1,20 @@
-// app/components/PasswordGame.tsx
+
 'use client';
 
 import { useState, useEffect } from 'react';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, updateDoc, getDoc, arrayUnion } from 'firebase/firestore';
 import { db } from '@/app/lib/firebase';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Check, Clock, Shield, Trophy, X } from 'lucide-react';
-import type { Room, Player, GameScore } from '@/app/lib/types';
+import { Leaderboard } from '@/components/Leaderboard';
+import type { Room, GameScore } from '@/app/lib/types';
 
 interface PasswordGameProps {
   roomId: string;
   room: Room;
-  playerId: string | null;  // Update to allow null
+  playerId: string;
 }
 
 const requirements = [
@@ -27,8 +28,10 @@ const requirements = [
 
 export default function PasswordGame({ roomId, room, playerId }: PasswordGameProps) {
   const [password, setPassword] = useState('');
-  const [timeLeft, setTimeLeft] = useState(120); // 2 minutes
+  const [timeLeft, setTimeLeft] = useState(120);
   const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState('');
+  const [attempts, setAttempts] = useState(0);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -48,19 +51,12 @@ export default function PasswordGame({ roomId, room, playerId }: PasswordGamePro
 
   const calculateComplexityScore = (pwd: string): number => {
     let score = 0;
-    // Length bonus
     if (pwd.length >= 15) score += 20;
-    // Multiple uppercase
     if (/[A-Z].*[A-Z]/.test(pwd)) score += 10;
-    // Multiple lowercase
     if (/[a-z].*[a-z]/.test(pwd)) score += 10;
-    // Multiple numbers
     if (/[0-9].*[0-9]/.test(pwd)) score += 10;
-    // Multiple special chars
     if (/[!@#$%^&*].*[!@#$%^&*]/.test(pwd)) score += 20;
-    // No repeating chars
     if (!/(.)\1\1/.test(pwd)) score += 10;
-    // Extra characters
     if (/[^A-Za-z0-9!@#$%^&*]/.test(pwd)) score += 20;
     return score;
   };
@@ -69,43 +65,109 @@ export default function PasswordGame({ roomId, room, playerId }: PasswordGamePro
   const allRequirementsMet = () => requirements.every(checkRequirement);
 
   const submitPassword = async (pwd: string, complexityScore: number) => {
-    const roomRef = doc(db, 'rooms', roomId);
-    
-    const score: GameScore = {
-      timeLeft,
-      complexity: complexityScore,
-      total: timeLeft + complexityScore
-    };
+    try {
+      // Get current room data for accurate placement
+      const roomRef = doc(db, 'rooms', roomId);
+      const roomSnap = await getDoc(roomRef);
+      const roomData = roomSnap.data() as Room;
 
-    const updatedPlayers = room.players.map(p => 
-      p.id === playerId 
-        ? { ...p, score, hasSubmitted: true }
-        : p
-    );
+      // Calculate place based on existing submissions
+      const submittedPlayers = roomData.players.filter(p => p.score);
+      const place = submittedPlayers.length + 1;
 
-    const allSubmitted = updatedPlayers.every(p => p.hasSubmitted);
+      const score: GameScore = {
+        timeLeft,
+        complexity: complexityScore,
+        total: timeLeft + complexityScore,
+        place,
+        completedAt: new Date()
+      };
 
-    await updateDoc(roomRef, {
-      players: updatedPlayers,
-      allSubmitted,
-      'gameState.status': allSubmitted ? 'roundEnd' : 'playing'
-    });
+      const currentPlayer = roomData.players.find(p => p.id === playerId);
+      if (!currentPlayer) return;
 
-    setSubmitted(true);
-  };
+      const updatedPlayers = roomData.players.map(p => 
+        p.id === playerId 
+          ? { 
+              ...p, 
+              score, 
+              hasSubmitted: true,
+              stats: {
+                totalGames: (p.stats?.totalGames || 0) + 1,
+                wins: place === 1 ? (p.stats?.wins || 0) + 1 : (p.stats?.wins || 0),
+                totalScore: (p.stats?.totalScore || 0) + score.total,
+                bestTime: p.stats?.bestTime ? Math.max(p.stats.bestTime, score.timeLeft) : score.timeLeft,
+                averagePlace: p.stats?.totalGames 
+                  ? ((p.stats.averagePlace * p.stats.totalGames + place) / (p.stats.totalGames + 1))
+                  : place
+              }
+            }
+          : p
+      );
 
-  const handleSubmit = () => {
-    if (allRequirementsMet()) {
-      const complexityScore = calculateComplexityScore(password);
-      submitPassword(password, complexityScore);
+      const allSubmitted = updatedPlayers.every(p => p.hasSubmitted);
+
+      // Update room
+      await updateDoc(roomRef, {
+        players: updatedPlayers,
+        allSubmitted,
+        ...(allSubmitted ? {
+          'gameState.status': 'roundEnd',
+          'roundHistory': arrayUnion({
+            gameType: 'password',
+            winners: updatedPlayers
+              .filter(p => p.score?.place === 1)
+              .map(p => p.id),
+            scores: Object.fromEntries(
+              updatedPlayers
+                .filter(p => p.score)
+                .map(p => [p.id, p.score])
+            )
+          })
+        } : {})
+      });
+
+      setSubmitted(true);
+
+      // If all submitted, automatically return to lobby after delay
+      if (allSubmitted) {
+        setTimeout(() => {
+          updateDoc(roomRef, {
+            'gameState.status': 'waiting',
+            'gameState.round': roomData.gameState.round + 1,
+            players: updatedPlayers.map(p => ({
+              ...p,
+              score: null,
+              hasSubmitted: false
+            }))
+          });
+        }, 5000);
+      }
+    } catch (error) {
+      console.error('Failed to submit password:', error);
+      setError('Failed to submit. Please try again.');
     }
   };
 
-  const sortedPlayers = [...room.players].sort((a, b) => 
-    (b.score?.total || 0) - (a.score?.total || 0)
-  );
-
-  if (submitted && !room.allSubmitted) {
+  if (room.allSubmitted || (submitted && room.players.every(p => p.hasSubmitted))) {
+    return (
+      <Card className="bg-gray-800 border-gray-700">
+        <CardHeader>
+          <CardTitle className="text-xl font-semibold text-green-400 flex items-center">
+            <Trophy className="mr-2 h-5 w-5" />
+            Game Results
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Leaderboard 
+            players={room.players}
+            isInGame={true}
+            showStats={false}
+          />
+        </CardContent>
+      </Card>
+    );
+  } else if (submitted) {
     return (
       <Card className="bg-gray-800 border-gray-700">
         <CardHeader>
@@ -115,24 +177,11 @@ export default function PasswordGame({ roomId, room, playerId }: PasswordGamePro
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-2">
-            {sortedPlayers.map((player, index) => (
-              <div 
-                key={player.id} 
-                className={`p-4 rounded-lg flex items-center justify-between ${
-                  player.id === playerId ? 'bg-blue-900' : 'bg-gray-700'
-                }`}
-              >
-                <span className="flex items-center">
-                  {index + 1}. {player.name}
-                </span>
-                {player.hasSubmitted ? 
-                  <Check className="h-5 w-5 text-green-500" /> : 
-                  <Clock className="h-5 w-5 text-yellow-500 animate-pulse" />
-                }
-              </div>
-            ))}
-          </div>
+          <Leaderboard 
+            players={room.players}
+            isInGame={true}
+            showStats={false}
+          />
         </CardContent>
       </Card>
     );
@@ -167,8 +216,13 @@ export default function PasswordGame({ roomId, room, playerId }: PasswordGamePro
               </div>
             ))}
           </div>
+          {error && (
+            <div className="text-red-400 mt-4">
+              {error}
+            </div>
+          )}
           <Button
-            onClick={handleSubmit}
+            onClick={() => submitPassword(password, calculateComplexityScore(password))}
             disabled={!allRequirementsMet()}
             className="mt-6 bg-blue-600 hover:bg-blue-700 w-full"
           >
@@ -181,34 +235,14 @@ export default function PasswordGame({ roomId, room, playerId }: PasswordGamePro
         <CardHeader>
           <CardTitle className="text-xl font-semibold text-blue-400 flex items-center">
             <Trophy className="mr-2 h-5 w-5" />
-            Leaderboard
+            Current Rankings
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-2">
-            {sortedPlayers.map((player, index) => (
-              <div 
-                key={player.id} 
-                className={`p-3 rounded-lg ${
-                  player.id === playerId ? 'bg-blue-900' : 'bg-gray-700'
-                }`}
-              >
-                <div className="flex justify-between items-center">
-                  <span>{index + 1}. {player.name}</span>
-                  {player.score && (
-                    <span className="text-sm">
-                      Total: {player.score.total}
-                    </span>
-                  )}
-                </div>
-                {player.score && (
-                  <div className="text-xs text-gray-400 mt-1">
-                    Time: {player.score.timeLeft}s | Complexity: {player.score.complexity}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
+          <Leaderboard 
+            players={room.players}
+            isInGame={true}
+          />
         </CardContent>
       </Card>
     </div>

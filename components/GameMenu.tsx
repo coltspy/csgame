@@ -3,7 +3,7 @@
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Shield, Mail, Lock } from 'lucide-react';
+import { Shield, Lock, Radio } from 'lucide-react';
 import type { GameType } from '@/app/lib/types';
 
 interface GameMenuProps {
@@ -16,7 +16,7 @@ export default function GameMenu({ onSelectGame }: GameMenuProps) {
       type: 'password' as GameType,
       title: 'Password Challenge',
       description: 'Create secure passwords meeting requirements',
-      icon: Shield
+      icon: Lock
     },
     {
       type: 'network' as GameType,
@@ -28,7 +28,7 @@ export default function GameMenu({ onSelectGame }: GameMenuProps) {
       type: 'encryption' as GameType,
       title: 'Encryption Basics',
       description: 'Learn about basic encryption concepts',
-      icon: Lock
+      icon: Radio
     }
   ];
 

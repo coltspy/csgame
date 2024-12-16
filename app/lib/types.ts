@@ -4,9 +4,19 @@ export interface GameScore {
   timeLeft: number;
   complexity: number;
   total: number;
+  place?: number;
+  completedAt: Date;
 }
 
 export type GameType = 'password' | 'network' | 'encryption';
+
+export interface PlayerStats {
+  totalGames: number;
+  wins: number;
+  totalScore: number;
+  bestTime: number;
+  averagePlace: number;
+}
 
 export interface Player {
   id: string;
@@ -14,7 +24,7 @@ export interface Player {
   joinedAt: Date;
   score: GameScore | null;
   hasSubmitted: boolean;
-  totalScore?: number;
+  stats: PlayerStats;
 }
 
 export interface Room {
@@ -24,27 +34,15 @@ export interface Room {
   creatorId: string;
   players: Player[];
   gameState: {
+    type: GameType;
     round: number;
     status: 'waiting' | 'playing' | 'roundEnd';
-    gameType?: GameType;
-    currentQuestion?: number;
     startTime?: Date;
+    roundHistory?: {
+      gameType: GameType;
+      winners: string[];
+      scores: Record<string, GameScore>;
+    }[];
   };
   allSubmitted: boolean;
-}
-
-export interface Question {
-  id: number;
-  text: string;
-  options: string[];
-  correctAnswers: string[];
-  points: number;
-}
-
-export interface Round {
-  number: number;
-  title: string;
-  description: string;
-  questions: Question[];
-  timeLimit: number;
 }
