@@ -23,7 +23,30 @@ const requirements = [
   { id: 3, text: "Contains lowercase letter", check: (pwd: string) => /[a-z]/.test(pwd) },
   { id: 4, text: "Contains number", check: (pwd: string) => /[0-9]/.test(pwd) },
   { id: 5, text: "Contains special character (!@#$%^&*)", check: (pwd: string) => /[!@#$%^&*]/.test(pwd) },
-  { id: 6, text: "No repeating characters (e.g., 'aaa')", check: (pwd: string) => !/(.)\1\1/.test(pwd) }
+  { id: 6, text: "No repeating characters (e.g., 'aaa')", check: (pwd: string) => !/(.)\1\1/.test(pwd) },
+  { 
+    id: 7, 
+    text: "Must contain a number that's the sum of two previous numbers", 
+    check: (pwd: string) => {
+      const numbers = pwd.match(/\d+/g)?.map(Number);
+      return numbers ? numbers.some((n, i) => i >= 2 && n === numbers[i-1] + numbers[i-2]) : false;
+    }
+  },
+  { 
+    id: 8, 
+    text: "Must include a day of the week (capitalized)", 
+    check: (pwd: string) => /Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday/.test(pwd)
+  },
+  { 
+    id: 9, 
+    text: "Must contain alternating consonants and vowels somewhere", 
+    check: (pwd: string) => /[bcdfghjklmnpqrstvwxyz][aeiou][bcdfghjklmnpqrstvwxyz][aeiou]/i.test(pwd)
+  },
+  { 
+    id: 10, 
+    text: "Must include a mathematical operation (e.g., 2+2=4)", 
+    check: (pwd: string) => /\d+[\+\-\*\/]\d+=\d+/.test(pwd)
+  }
 ];
 
 export default function PasswordGame({ roomId, room, playerId }: PasswordGameProps) {
