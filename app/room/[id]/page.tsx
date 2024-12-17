@@ -78,7 +78,7 @@ export default function RoomPage() {
         return;
       }
 
-      if (room.players.length >= 8) {
+      if (room.players.length >= 30) {
         setError('Room is full');
         return;
       }
@@ -232,7 +232,7 @@ export default function RoomPage() {
       <CardHeader>
         <CardTitle className="text-xl font-semibold text-blue-400 flex items-center">
           <Users className="mr-2 h-5 w-5" />
-          Players ({room.players.length}/8)
+          Players ({room.players.length}/30)
         </CardTitle>
       </CardHeader>
       <CardContent>
