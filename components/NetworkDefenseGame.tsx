@@ -368,8 +368,8 @@ export default function NetworkDefenseGame({ roomId, room, playerId }: NetworkDe
                 animate={{ opacity: 1, y: 0 }}
                 className="bg-gray-900 p-6 rounded-lg"
               >
-                <div className="text-xl font-semibold mb-6">
-                  {currentQuestion?.text}
+              <div className="text-xl font-semibold mb-6 text-white">
+              {currentQuestion?.text}
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   {currentQuestion?.answers.map((answer, index) => (
