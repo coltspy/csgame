@@ -6,8 +6,8 @@ import { doc, updateDoc, getDoc, arrayUnion } from 'firebase/firestore';
 import { db } from '@/app/lib/firebase';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Shield, Trophy, Heart, AlertCircle } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { Shield, Trophy, AlertCircle } from 'lucide-react';
+import { motion } from 'framer-motion';
 import { Leaderboard } from '@/components/Leaderboard';
 import type { Room, GameScore } from '@/app/lib/types';
 
@@ -65,60 +65,156 @@ const QUESTIONS: Question[] = [
     category: 'malware',
     timeLimit: 15
   },
-  // Add more questions...
+  {
+    id: 4,
+    text: "What is the purpose of a honeypot in network security?",
+    answers: [
+      "To store encrypted data",
+      "To attract and detect attackers",
+      "To manage network traffic",
+      "To backup system files"
+    ],
+    correct: 1,
+    points: 100,
+    category: 'protocol',
+    timeLimit: 15
+  },
+  {
+    id: 5,
+    text: "Which of these is a type of Man-in-the-Middle attack?",
+    answers: [
+      "ARP Spoofing",
+      "Buffer Overflow",
+      "SQL Injection",
+      "Zero-day Exploit"
+    ],
+    correct: 0,
+    points: 100,
+    category: 'protocol',
+    timeLimit: 15
+  },
+  {
+    id: 6,
+    text: "What does NAT stand for in networking?",
+    answers: [
+      "Network Address Translation",
+      "Network Authentication Token",
+      "Native Access Transfer",
+      "Network Authorization Type"
+    ],
+    correct: 0,
+    points: 100,
+    category: 'protocol',
+    timeLimit: 15
+  },
+  {
+    id: 7,
+    text: "Which protocol is used for secure email transmission?",
+    answers: [
+      "HTTP",
+      "FTP",
+      "SMTP",
+      "SMTPS"
+    ],
+    correct: 3,
+    points: 100,
+    category: 'protocol',
+    timeLimit: 15
+  },
+  {
+    id: 8,
+    text: "What is the main purpose of an IDS (Intrusion Detection System)?",
+    answers: [
+      "Block network traffic",
+      "Monitor for suspicious activity",
+      "Encrypt data",
+      "Manage passwords"
+    ],
+    correct: 1,
+    points: 100,
+    category: 'firewall',
+    timeLimit: 15
+  },
+  {
+    id: 9,
+    text: "Which of these is NOT a type of firewall?",
+    answers: [
+      "Packet filtering",
+      "Circuit-level gateway",
+      "Memory scanning",
+      "Application-level gateway"
+    ],
+    correct: 2,
+    points: 100,
+    category: 'firewall',
+    timeLimit: 15
+  },
+  {
+    id: 10,
+    text: "What type of attack attempts to exhaust system resources?",
+    answers: [
+      "Phishing",
+      "DDoS",
+      "SQL Injection",
+      "Cross-site Scripting"
+    ],
+    correct: 1,
+    points: 100,
+    category: 'protocol',
+    timeLimit: 15
+  }
 ];
 
 export default function NetworkDefenseGame({ roomId, room, playerId }: NetworkDefenseProps) {
-  const [lives, setLives] = useState(3);
   const [score, setScore] = useState(0);
-  const [currentQuestion, setCurrentQuestion] = useState(0);
-  const [timeLeft, setTimeLeft] = useState(QUESTIONS[0].timeLimit);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(QUESTIONS[0]?.timeLimit ?? 15);
   const [submitted, setSubmitted] = useState(false);
   const [gameOver, setGameOver] = useState(false);
   const [streak, setStreak] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+
+  const currentQuestion = QUESTIONS[currentQuestionIndex];
 
   useEffect(() => {
-    if (submitted || gameOver) return;
+    if (submitted || gameOver || !currentQuestion) return;
 
     const timer = setInterval(() => {
       setTimeLeft(prev => {
         if (prev <= 0) {
-          handleAnswer(-1); // Wrong answer if time runs out
-          return QUESTIONS[currentQuestion].timeLimit;
+          handleAnswer(-1);
+          return currentQuestion.timeLimit;
         }
         return prev - 1;
       });
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [submitted, currentQuestion, gameOver]);
+  }, [submitted, currentQuestionIndex, gameOver, currentQuestion]);
 
   const handleAnswer = (answerIndex: number) => {
-    const question = QUESTIONS[currentQuestion];
-    let correct = answerIndex === question.correct;
-    let points = 0;
+    try {
+      if (!currentQuestion) return;
 
-    if (correct) {
-      points = question.points + (timeLeft * 10); // Time bonus
-      setStreak(prev => prev + 1);
-      if (streak >= 2) points *= 1.5; // Streak bonus
-      setScore(prev => prev + points);
-    } else {
-      setLives(prev => prev - 1);
-      setStreak(0);
-      if (lives <= 1) {
+      let correct = answerIndex === currentQuestion.correct;
+      if (correct) {
+        const points = currentQuestion.points + (timeLeft * 10);
+        setStreak(prev => prev + 1);
+        setScore(prev => prev + (streak >= 2 ? points * 1.5 : points));
+      } else {
+        setStreak(0);
+      }
+
+      if (currentQuestionIndex >= QUESTIONS.length - 1) {
         setGameOver(true);
         submitScore();
-        return;
+      } else {
+        setCurrentQuestionIndex(prev => prev + 1);
+        setTimeLeft(QUESTIONS[currentQuestionIndex + 1]?.timeLimit ?? 15);
       }
-    }
-
-    if (currentQuestion >= QUESTIONS.length - 1) {
-      setGameOver(true);
-      submitScore();
-    } else {
-      setCurrentQuestion(prev => prev + 1);
-      setTimeLeft(QUESTIONS[currentQuestion + 1].timeLimit);
+    } catch (err) {
+      console.error('Error handling answer:', err);
+      setError('An error occurred. Please try again.');
     }
   };
 
@@ -133,9 +229,7 @@ export default function NetworkDefenseGame({ roomId, room, playerId }: NetworkDe
       const submittedPlayers = roomData.players.filter(p => p.score);
       const place = submittedPlayers.length + 1;
       
-      const lifeBonus = lives * 200;
-      const finalScore = score + lifeBonus;
-
+      const finalScore = score;
       const gameScore: GameScore = {
         timeLeft,
         complexity: score,
@@ -202,8 +296,28 @@ export default function NetworkDefenseGame({ roomId, room, playerId }: NetworkDe
 
     } catch (error) {
       console.error('Failed to submit score:', error);
+      setError('Failed to submit score. Please try again.');
     }
   };
+
+  if (error) {
+    return (
+      <Card className="bg-gray-800 border-gray-700">
+        <CardHeader>
+          <CardTitle className="text-xl font-semibold text-red-400 flex items-center">
+            <AlertCircle className="mr-2 h-5 w-5" />
+            Error
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-gray-300 mb-4">{error}</p>
+          <Button onClick={() => window.location.reload()} className="bg-blue-600 hover:bg-blue-700">
+            Restart Game
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
 
   if (room.allSubmitted || (submitted && room.players.every(p => p.hasSubmitted))) {
     return (
@@ -235,15 +349,7 @@ export default function NetworkDefenseGame({ roomId, room, playerId }: NetworkDe
                 Network Security Quiz
               </div>
               <div className="flex items-center space-x-6">
-                <div className="flex items-center">
-                  {[...Array(lives)].map((_, i) => (
-                    <Heart 
-                      key={i} 
-                      className="h-5 w-5 text-red-500 ml-1" 
-                      fill="currentColor"
-                    />
-                  ))}
-                </div>
+                <div>Question: {currentQuestionIndex + 1}/{QUESTIONS.length}</div>
                 <div>Time: {timeLeft}s</div>
                 <div>Score: {score}</div>
                 {streak >= 2 && (
@@ -257,16 +363,16 @@ export default function NetworkDefenseGame({ roomId, room, playerId }: NetworkDe
           <CardContent>
             <div className="space-y-8 p-4">
               <motion.div
-                key={currentQuestion}
+                key={currentQuestionIndex}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 className="bg-gray-900 p-6 rounded-lg"
               >
                 <div className="text-xl font-semibold mb-6">
-                  {QUESTIONS[currentQuestion].text}
+                  {currentQuestion?.text}
                 </div>
                 <div className="grid grid-cols-2 gap-4">
-                  {QUESTIONS[currentQuestion].answers.map((answer, index) => (
+                  {currentQuestion?.answers.map((answer, index) => (
                     <Button
                       key={index}
                       onClick={() => handleAnswer(index)}
